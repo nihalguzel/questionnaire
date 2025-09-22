@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
+using System.IO.Compression;
+using System.Text;
 
 namespace questionnaire.Controllers
 {
@@ -19,33 +21,35 @@ namespace questionnaire.Controllers
         }
 
         [HttpGet(Name = "GetWeatherForecast")]
-        public IActionResult Get()
+        public async Task<IActionResult> Get()
         {
-            string[] lines = {
-                "44BB190BC2493964E053CF0A000AB546\t6164\t1\t09/08/2016 09:16:00",
-                "44BB190BC24A3964E053CF0A000AB546\t544\t3\t10/08/2016 13:54:00",
-                "44BB190BC24B3964E053CF0A000AB546\t9648\t3\t08/08/2016 06:08:00",
-                "44BB190BC24C3964E053CF0A000AB546\t7565\t2\t10/08/2016 17:30:00",
-                "44BB190BC24D3964E053CF0A000AB546\t8995\t1\t11/08/2016 02:40:00",
-                "44BB190BC24E3964E053CF0A000AB546\t4407\t1\t08/08/2016 07:30:00",
-                "44BB190BC24F3964E053CF0A000AB546\t5839\t2\t10/08/2016 02:40:00",
-                "44BB190BC2503964E053CF0A000AB546\t548\t3\t09/08/2016 20:45:00",
-                "44BB190BC2513964E053CF0A000AB546\t376\t3\t10/08/2016 04:57:00",
-                "44BB190BC2523964E053CF0A000AB546\t3403\t2\t08/08/2016 21:14:00",
-                "44BB190BC2533964E053CF0A000AB546\t7256\t2\t10/08/2016 06:29:00",
-                "44BB190BC2543964E053CF0A000AB546\t4291\t3\t08/08/2016 09:26:00",
-                "44BB190BC2553964E053CF0A000AB546\t5722\t2\t08/08/2016 23:33:00",
-                "44BB190BC2563964E053CF0A000AB546\t9857\t1\t10/08/2016 22:05:00",
-                "44BB190BC2573964E053CF0A000AB546\t3122\t2\t09/08/2016 08:35:00",
-                "44BB190BC2583964E053CF0A000AB546\t217\t2\t10/08/2016 13:20:00",
-                "44BB190BC2593964E053CF0A000AB546\t3022\t1\t10/08/2016 17:06:00",
-                "44BB190BC25A3964E053CF0A000AB546\t9857\t1\t10/08/2016 15:06:00",
-                "44BB190BC25B3964E053CF0A000AB546\t2168\t3\t11/08/2016 13:30:33"
-            };
+            using var httpClient = new HttpClient();
+            var response = await httpClient.GetAsync("https://pi.works/exhibit-a");
+            if (!response.IsSuccessStatusCode)
+                return StatusCode((int)response.StatusCode, "Data source unreachable.");
+
+            // ZIP dosyasýný byte olarak al
+            var zipBytes = await response.Content.ReadAsByteArrayAsync();
+
+            string[] lines;
+            using (var zipStream = new MemoryStream(zipBytes))
+            using (var archive = new ZipArchive(zipStream, ZipArchiveMode.Read))
+            {
+                var entry = archive.GetEntry("exhibitA-input.csv");
+                if (entry == null)
+                    return StatusCode(500, "CSV file not found in archive.");
+
+                using var entryStream = entry.Open();
+                using var reader = new StreamReader(entryStream, Encoding.UTF8);
+                var csvContent = await reader.ReadToEndAsync();
+                lines = csvContent
+                    .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                    .ToArray();
+            }
 
             var userSongs = new Dictionary<string, HashSet<string>>();
 
-            foreach (var line in lines.Skip(1))
+            foreach (var line in lines.Skip(1)) // ilk satýr baþlýk
             {
                 var parts = line.Split('\t');
                 if (parts.Length < 4) continue;
